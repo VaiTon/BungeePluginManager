@@ -1,170 +1,189 @@
 package bungeepluginmanager;
 
-import com.google.common.collect.Multimap;
-import net.md_5.bungee.api.ProxyServer;
-import net.md_5.bungee.api.plugin.*;
-import org.yaml.snakeyaml.Yaml;
-
 import java.io.File;
 import java.io.InputStream;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.text.MessageFormat;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 
-public final class PluginUtils {
-    private PluginUtils() {
-        throw new IllegalStateException("Utility class");
-    }
+import org.yaml.snakeyaml.Yaml;
 
-    @SuppressWarnings("deprecation")
-    public static void unloadPlugin(Plugin plugin) {
+import net.md_5.bungee.api.ProxyServer;
+import net.md_5.bungee.api.plugin.Command;
+import net.md_5.bungee.api.plugin.Plugin;
+import net.md_5.bungee.api.plugin.PluginDescription;
+import net.md_5.bungee.api.plugin.PluginManager;
 
-        PluginManager pluginManager = ProxyServer.getInstance().getPluginManager();
-        ClassLoader pluginClassLoader = plugin.getClass().getClassLoader();
+public class PluginUtils {
 
-        try {
-            //call onDisable
-            plugin.onDisable();
-            //close all log handlers
-            for (Handler handler : plugin.getLogger().getHandlers()) {
-                handler.close();
-            }
-        } catch (Exception t) {
-            severe("Exception disabling plugin", t, plugin.getDescription().getName());
-        }
+	@SuppressWarnings("deprecation")
+	public static Exception unloadPlugin(Plugin plugin) {
+		IllegalStateException error = new IllegalStateException("Errors occured while unloading plugin " + plugin.getDescription().getName()) {
+			private static final long serialVersionUID = 1L;
+			@Override
+			public synchronized Throwable fillInStackTrace() {
+				return this;
+			}
+		};
 
-        //unregister event handlers
-        pluginManager.unregisterListeners(plugin);
-        //unregister commands
-        pluginManager.unregisterCommands(plugin);
-        //cancel tasks
-        ProxyServer.getInstance().getScheduler().cancel(plugin);
-        //shutdown internal executor
-        plugin.getExecutorService().shutdownNow();
-        //stop all still active threads that belong to a plugin
-        Thread.getAllStackTraces().keySet().stream()
-                .filter(thread -> (thread.getClass().getClassLoader() == pluginClassLoader))
-                .forEach(thread -> {
-                    try {
-                        thread.interrupt();
-                        thread.join(2000);
-                        if (thread.isAlive()) {
-                            throw new IllegalStateException("Thread " + thread.getName() + " still running");
-                        }
-                    } catch (Exception t) {
-                        severe("Failed to stop thread that belong to plugin", t, plugin.getDescription().getName());
-                    }
-                });
+		PluginManager pluginmanager = ProxyServer.getInstance().getPluginManager();
+		ClassLoader pluginclassloader = plugin.getClass().getClassLoader();
 
-        //finish uncompleted intents
-        ModifiedPluginEventBus.completeIntents(plugin);
-        //remove commands that were registered by plugin not through normal means
-        try {
-            Map<String, Command> commandMap = ReflectionUtils.getFieldValue(pluginManager, "commandMap");
-            if (checkReflectionNotNull(commandMap, "commandMap")) {
-                commandMap.entrySet().removeIf(entry -> entry.getValue().getClass().getClassLoader() == pluginClassLoader);
-            }
-        } catch (Exception t) {
-            severe("Failed to cleanup commandMap", t, plugin.getDescription().getName());
-        }
-        //cleanup internal listener and command maps from plugin refs
-        try {
-            Map<String, Plugin> pluginsMap = ReflectionUtils.getFieldValue(pluginManager, "plugins");
-            Multimap<Plugin, Command> commands = ReflectionUtils.getFieldValue(pluginManager, "commandsByPlugin");
-            Multimap<Plugin, Listener> listeners = ReflectionUtils.getFieldValue(pluginManager, "listenersByPlugin");
+		//call onDisable
+		try {
+			plugin.onDisable();
+		} catch (Throwable t) {
+			error.addSuppressed(t);
+		}
 
-            if (checkReflectionNotNull(pluginsMap, "plugin")
-                    && checkReflectionNotNull(commands, "commandByPlugin")
-                    && checkReflectionNotNull(listeners, "listenersByPlugin")) {
-                pluginsMap.values().remove(plugin);
-                commands.removeAll(plugin);
-                listeners.removeAll(plugin);
-            }
-        } catch (Exception t) {
-            severe("Failed to cleanup bungee internal maps from plugin refs", t, plugin.getDescription().getName());
-        }
-        //close classloader
-        if (pluginClassLoader instanceof URLClassLoader) {
-            try {
-                ((URLClassLoader) pluginClassLoader).close();
-            } catch (Exception t) {
-                severe("Failed to close the classloader for plugin", t, plugin.getDescription().getName());
-            }
-        }
-        //remove classloader
-        Set<PluginClassloader> allLoaders = ReflectionUtils.getStaticFieldValue(PluginClassloader.class, "allLoaders");
-        if (checkReflectionNotNull(allLoaders, "allLoaders")) {
-            allLoaders.remove(pluginClassLoader);
-        }
+		//close all log handlers
+		try {
+			for (Handler handler : plugin.getLogger().getHandlers()) {
+				handler.close();
+			}
+		} catch (Throwable t) {
+			error.addSuppressed(t);
+		}
 
-    }
+		//unregister event handlers
+		try {
+			pluginmanager.unregisterListeners(plugin);
+		} catch (Throwable t) {
+			error.addSuppressed(t);
+		}
 
-    private static boolean checkReflectionNotNull(Object obj, String field) {
-        if (obj == null) {
-            ProxyServer.getInstance().getLogger().log(Level.SEVERE, "Could not get field {} by reflections: are you using the latest version of BungeePluginManager?", field);
-            return false;
-        }
-        return true;
-    }
+		//unregister commands
+		try {
+			pluginmanager.unregisterCommands(plugin);
+		} catch (Throwable t) {
+			error.addSuppressed(t);
+		}
 
-    @SuppressWarnings("resource")
-    public static boolean loadPlugin(File pluginFile) {
+		//cancel tasks
+		try {
+			ProxyServer.getInstance().getScheduler().cancel(plugin);
+		} catch (Throwable t) {
+			error.addSuppressed(t);
+		}
 
-        try (JarFile jar = new JarFile(pluginFile)) {
+		//shutdown plugin executor
+		try {
+			plugin.getExecutorService().shutdownNow();
+		} catch (Throwable t) {
+			error.addSuppressed(t);
+		}
 
-            JarEntry pdf = jar.getJarEntry("bungee.yml");
+		//stop all still active threads that belong to a plugin
+		for (Thread thread : Thread.getAllStackTraces().keySet()) {
+			if (thread.getClass().getClassLoader() == pluginclassloader) {
+				try {
+					thread.interrupt();
+					thread.join(2000);
+					if (thread.isAlive()) {
+						thread.stop();
+					}
+				} catch (Throwable t) {
+					error.addSuppressed(t);
+				}
+			}
+		}
 
-            if (pdf == null) {
-                pdf = jar.getJarEntry("plugin.yml");
-            }
+		//finish uncompleted intents
+		ModifiedPluginEventBus.completeIntents(plugin);
 
-            try (InputStream in = jar.getInputStream(pdf)) {
-                //load description
-                PluginDescription desc = new Yaml().loadAs(in, PluginDescription.class);
-                desc.setFile(pluginFile);
-                //check depends
-                HashSet<String> plugins = new HashSet<>();
-                ProxyServer.getInstance().getPluginManager().getPlugins().forEach(plugin -> plugins.add(plugin.getDescription().getName()));
-                for (String dependency : desc.getDepends()) {
-                    if (!plugins.contains(dependency)) {
-                        ProxyServer.getInstance().getLogger().log(Level.WARNING, "{0} (required by {1}) is unavailable", new Object[]{dependency, desc.getName()});
-                        return false;
-                    }
-                }
+		//remove commands that were registered by plugin not through normal means
+		try {
+			Map<String, Command> commandMap = ReflectionUtils.getFieldValue(pluginmanager, "commandMap");
+			Iterator<Entry<String, Command>> iterator = commandMap.entrySet().iterator();
+			while (iterator.hasNext()) {
+				Entry<String, Command> entry = iterator.next();
+				if (entry.getValue().getClass().getClassLoader() == pluginclassloader) {
+					iterator.remove();
+				}
+			}
+		} catch (Throwable t) {
+			error.addSuppressed(t);
+		}
 
-                // do actual loading
-                Class<?> main;
-                try (URLClassLoader loader = new PluginClassloader(new URL[]{
-                        pluginFile.toURI().toURL()
-                })) {
-                    main = loader.loadClass(desc.getMain());
-                }
-                Plugin clazz = (Plugin) main.getDeclaredConstructor().newInstance();
+		//remove plugin ref from internal plugins map
+		try {
+			ReflectionUtils.<Map<String, Plugin>>getFieldValue(pluginmanager, "plugins").values().remove(plugin);
+		} catch (Throwable t) {
+			error.addSuppressed(t);
+		}
 
-                // reflection
-                Map<String, Plugin> pluginsMap = ReflectionUtils.getFieldValue(ProxyServer.getInstance().getPluginManager(), "plugins");
-                ReflectionUtils.invokeMethod(clazz, "init", ProxyServer.getInstance(), desc);
+		//close classloader
+		if (pluginclassloader instanceof URLClassLoader) {
+			try {
+				((URLClassLoader) pluginclassloader).close();
+			} catch (Throwable t) {
+				error.addSuppressed(t);
+			}
+		}
 
-                pluginsMap.put(desc.getName(), clazz);
-                clazz.onLoad();
-                clazz.onEnable();
-                return true;
-            }
-        } catch (Exception t) {
-            severe("Failed to load plugin", t, pluginFile.getName());
-            return false;
-        }
+		//remove classloader
+		try {
+			ReflectionUtils.<Set<ClassLoader>>getStaticFieldValue(pluginclassloader.getClass(), "allLoaders").remove(pluginclassloader);
+		} catch (Throwable t) {
+			error.addSuppressed(t);
+		}
 
-    }
+		return error.getSuppressed().length > 0 ? error : null;
+	}
 
-    private static void severe(String message, Exception t, String pluginName) {
-        ProxyServer.getInstance().getLogger().log(Level.SEVERE, message + " " + pluginName, t);
-    }
+	public static void loadPlugin(File pluginfile) {
+		ProxyServer proxyserver = ProxyServer.getInstance();
+		PluginManager pluginmanager = proxyserver.getPluginManager();
+
+		try (JarFile jar = new JarFile(pluginfile)) {
+			JarEntry pdf = jar.getJarEntry("bungee.yml");
+			if (pdf == null) {
+				pdf = jar.getJarEntry("plugin.yml");
+			}
+			try (InputStream in = jar.getInputStream(pdf)) {
+				//load description
+				PluginDescription desc = new Yaml().loadAs(in, PluginDescription.class);
+				desc.setFile(pluginfile);
+				//check depends
+				HashSet<String> plugins = new HashSet<>();
+				for (Plugin plugin : pluginmanager.getPlugins()) {
+					plugins.add(plugin.getDescription().getName());
+				}
+				for (String dependency : desc.getDepends()) {
+					if (!plugins.contains(dependency)) {
+						throw new IllegalArgumentException(MessageFormat.format("Missing plugin dependency {0}", dependency));
+					}
+				}
+				//load plugin
+				Plugin plugin = (Plugin)
+					ReflectionUtils.setAccessible(
+						BungeePluginManager.class.getClassLoader().getClass()
+						.getDeclaredConstructor(ProxyServer.class, PluginDescription.class, URL[].class)
+					)
+					.newInstance(proxyserver, desc, new URL[] {pluginfile.toURI().toURL()})
+					.loadClass(desc.getMain()).getDeclaredConstructor()
+					.newInstance();
+				ReflectionUtils.invokeMethod(plugin, "init", proxyserver, desc);
+				ReflectionUtils.<Map<String, Plugin>>getFieldValue(pluginmanager, "plugins").put(desc.getName(), plugin);
+				plugin.onLoad();
+				plugin.onEnable();
+			}
+		} catch (Throwable t) {
+			throw new IllegalStateException("Error while loading plugin " + pluginfile.getName(), t);
+		}
+	}
+
+	static void severe(String message, Throwable t) {
+		ProxyServer.getInstance().getLogger().log(Level.SEVERE,  message);
+	}
 
 }

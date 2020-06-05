@@ -1,70 +1,64 @@
 package bungeepluginmanager;
 
+import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-final class ReflectionUtils {
-    private ReflectionUtils() {
-        throw new IllegalStateException("Utility class");
-    }
+public class ReflectionUtils {
 
-    @SuppressWarnings("unchecked")
-    static <T> T getFieldValue(Object obj, String fieldName) {
-        Class<?> clazz = obj.getClass();
-        do {
-            try {
-                Field field = clazz.getDeclaredField(fieldName);
-                field.setAccessible(true);
-                return (T) field.get(obj);
-            } catch (NoSuchFieldException | SecurityException | IllegalArgumentException | IllegalAccessException error) {
-                // Ignored
-            }
-        } while ((clazz = clazz.getSuperclass()) != null);
-        return null;
-    }
+	public static final <T extends AccessibleObject> T setAccessible(T t) {
+		t.setAccessible(true);
+		return t;
+	}
 
-    static void setFieldValue(Object obj, String fieldName, Object value) {
-        Class<?> clazz = obj.getClass();
-        do {
-            try {
-                Field field = clazz.getDeclaredField(fieldName);
-                field.setAccessible(true);
-                field.set(obj, value);
-            } catch (NoSuchFieldException | SecurityException | IllegalArgumentException | IllegalAccessException error) {
-                // Ignored
-            }
-        } while ((clazz = clazz.getSuperclass()) != null);
-    }
+	@SuppressWarnings("unchecked")
+	public static <T> T getFieldValue(Object obj, String fieldname) throws IllegalAccessException, NoSuchFieldException {
+		Class<?> clazz = obj.getClass();
+		do {
+			for (Field field : clazz.getDeclaredFields()) {
+				if (field.getName().equals(fieldname)) {
+					return (T) setAccessible(clazz.getDeclaredField(fieldname)).get(obj);
+				}
+			}
+		} while ((clazz = clazz.getSuperclass()) != null);
+		throw new NoSuchFieldException("Can't find field " + fieldname);
+	}
 
-    @SuppressWarnings("unchecked")
-    static <T> T getStaticFieldValue(Class<?> clazz, String fieldName) {
-        do {
-            try {
-                Field field = clazz.getDeclaredField(fieldName);
-                field.setAccessible(true);
-                return (T) field.get(null);
-            } catch (NoSuchFieldException | SecurityException | IllegalArgumentException | IllegalAccessException error) {
-                // Ignored
-            }
-        } while ((clazz = clazz.getSuperclass()) != null);
-        return null;
-    }
+	@SuppressWarnings("unchecked")
+	public static <T> T getStaticFieldValue(Class<?> clazz, String fieldname) throws IllegalAccessException, NoSuchFieldException {
+		do {
+			for (Field field : clazz.getDeclaredFields()) {
+				if (field.getName().equals(fieldname)) {
+					return (T) setAccessible(clazz.getDeclaredField(fieldname)).get(null);
+				}
+			}
+		} while ((clazz = clazz.getSuperclass()) != null);
+		throw new NoSuchFieldException("Can't find field " + fieldname);
+	}
 
-    static void invokeMethod(Object obj, String methodName, Object... args) {
-        Class<?> clazz = obj.getClass();
-        do {
-            try {
-                for (Method method : clazz.getDeclaredMethods()) {
-                    if (method.getName().equals(methodName) && method.getParameterTypes().length == args.length) {
-                        method.setAccessible(true);
-                        method.invoke(obj, args);
-                    }
-                }
-            } catch (SecurityException | IllegalAccessException | IllegalArgumentException | InvocationTargetException error) {
-                // Ignore
-            }
-        } while ((clazz = clazz.getSuperclass()) != null);
-    }
+	public static void setFieldValue(Object obj, String fieldname, Object value) throws IllegalAccessException, NoSuchFieldException {
+		Class<?> clazz = obj.getClass();
+		do {
+			for (Field field : clazz.getDeclaredFields()) {
+				if (field.getName().equals(fieldname)) {
+					setAccessible(clazz.getDeclaredField(fieldname)).set(obj, value);
+					return;
+				}
+			}
+		} while ((clazz = clazz.getSuperclass()) != null);
+		throw new NoSuchFieldException("Can't find field " + fieldname);
+	}
+
+	public static void invokeMethod(Object obj, String methodname, Object... args) throws IllegalAccessException, InvocationTargetException {
+		Class<?> clazz = obj.getClass();
+		do {
+			for (Method method : clazz.getDeclaredMethods()) {
+				if (method.getName().equals(methodname) && (method.getParameterTypes().length == args.length)) {
+					setAccessible(method).invoke(obj, args);
+				}
+			}
+		} while ((clazz = clazz.getSuperclass()) != null);
+	}
 
 }
