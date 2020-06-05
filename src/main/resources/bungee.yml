@@ -1,0 +1,4 @@
+name: ${project.name}
+main: bungeepluginmanager.BungeePluginManager
+version: ${project.version}
+authors: [_Shevchik_, Azalim, VaiTon86]

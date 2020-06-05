@@ -1,0 +1,45 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/openjdk:8u171-jdk
+
+
+    working_directory: ~/bpm
+
+
+    environment:
+      MAVEN_OPTS: -Xmx3200m
+
+
+    steps:
+      - checkout
+
+
+      - restore_cache:
+          keys:
+            # Use cache for this pom
+            - bpm-{{ checksum "pom.xml" }}
+            # Fallback to latest cache is an exact match is not found
+            - bpm-
+
+
+      - run: mvn -T 2 -B dependency:go-offline
+
+
+      - save_cache:
+          paths:
+            - ~/.m2
+          key: bpm-{{ checksum "pom.xml" }}
+
+
+      # Package and generate artifacts
+      - run: mvn -T 2 -B package
+
+      # Run SonarQube
+      - run: mvn sonar:sonar $SONAR_ARGS
+
+
+      - store_artifacts:
+          path: target
+
